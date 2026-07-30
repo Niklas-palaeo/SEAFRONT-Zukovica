@@ -43,11 +43,11 @@ label_lookup <- tibble(
 sst  <- sst_raw |> 
     column_to_rownames("excavation_unit") %>% 
     na.omit() |> 
-  decostand("normalize",MARGIN = 2)
+  decostand("standardize",MARGIN = 2)
 
 fauna <- fauna_raw |> 
     column_to_rownames("excavation_unit") %>% 
-  decostand("normalize",MARGIN = 2)
+  decostand("hellinger",MARGIN = 1)
 
 
 shared_units <- intersect(rownames(fauna), rownames(sst))
@@ -122,7 +122,7 @@ plot(RDA_model)
 ## Model Quality Check
 ### permutation tests
 ```{r permutation-tests}
-set.seed(42)
+set.seed(100)
 
 RsquareAdj(RDA_model)
 anova.cca(RDA_model, permutations = 999)

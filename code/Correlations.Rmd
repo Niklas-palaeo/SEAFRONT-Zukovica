@@ -42,8 +42,8 @@ sst  <- sst_raw |>
   # decostand("normalize",MARGIN = 2) these get normalised later
 
 fauna <- fauna_raw |> 
-    column_to_rownames("excavation_unit") %>% 
-  decostand("hellinger",MARGIN = 1)
+    column_to_rownames("excavation_unit") #%>% 
+  # decostand("hellinger",MARGIN = 2)
 
 
 shared_units <- intersect(rownames(fauna), rownames(sst))
@@ -115,16 +115,16 @@ Correlations_of_interest
 # Plots
 ```{r}
 Corr_data |> 
-  filter(env_data=="d18O_min_summer") %>%
+  filter(env_data=="d18O_min_summer") %>% # here to change the env variable
   mutate(env_values=scale(env_values)) |> 
-  filter(species%in%Correlations_of_interest$species) |>
+  filter(species%in%Correlations_of_interest$species) |> #here you can also add a ,species=="animal name") |> 
   ggplot()+
   aes(env_values,nisp)+
     geom_smooth(method = "lm",se = FALSE,col="grey40",linetype="dashed")+
   geom_point(aes(col=chronology))+
-  ylim(0,0.76)+
+  # ylim(0,0.76)+
   scale_color_manual(values = chron_colours) + 
-  stat_cor(aes(label = paste(..r.label.., ..p.label.., sep = "~`,`~")),label.x = -2, label.y = 0.7,p.accuracy = 0.01, r.accuracy = 0.01)+ 
+  stat_cor(aes(label = paste(..r.label.., ..p.label.., sep = "~`,`~")),p.accuracy = 0.01, r.accuracy = 0.01)+ 
     labs(title="Summer Temperature", x="Normalised temperature", y="Normalised NISP", col="")+
   facet_wrap(~species,scales = "free")
 
