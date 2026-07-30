@@ -29,18 +29,26 @@ theme_set(theme_cowplot())
 # Data
 
 ```{r load-data}
-sst  <- read_csv(here("data","raw", "zukovica_isotope.csv"), show_col_types = FALSE)
-fauna <- read_csv(here("data","raw", "zukovica_nisp_per_unit.csv"))
+sst_raw  <- read_csv(here("data","raw", "zukovica_isotope.csv"), show_col_types = FALSE) 
+
+fauna_raw <- read_csv(here("data","raw", "zukovica_nisp_per_unit.csv")) |> 
+  select(-Homo)
 
 label_lookup <- tibble(
-  clean = make.names(colnames(fauna %>% select(-excavation_unit))),
-  label = colnames(fauna %>% select(-excavation_unit)) %>%
+  clean = make.names(colnames(fauna_raw %>% select(-excavation_unit))),
+  label = colnames(fauna_raw %>% select(-excavation_unit)) %>%
     str_replace_all("_", " ")
 )
 
-fauna <- fauna %>%
-  column_to_rownames("excavation_unit") %>% 
-  decostand("hellinger")
+sst  <- sst_raw |> 
+    column_to_rownames("excavation_unit") %>% 
+    na.omit() |> 
+  decostand("normalize",MARGIN = 2)
+
+fauna <- fauna_raw |> 
+    column_to_rownames("excavation_unit") %>% 
+  decostand("hellinger",MARGIN = 2)
+
 
 shared_units <- intersect(rownames(fauna), rownames(sst))
 fauna <- fauna[shared_units, ]
@@ -87,8 +95,17 @@ chronology_df <- tibble(excavation_unit = shared_units) %>%
 
 ```{r rda-model}
 RDA_model <- rda(fauna,sst) # this does all of them
-RDA_model
+RDA_model <- rda(fauna ~ 
+                    d18O_min_summer +
+                   d18O_sd_summer +
+                   d18O_sd_winter +
+                   # d18O_range_winter+
+                   # d18O_range_summer+
+                    d18O_max_winter,
+                  data = sst
+                )
 
+RDA_model
 plot(RDA_model)
 #plot(RDA_model,scaling = "species", type = "n")
 
@@ -97,6 +114,7 @@ plot(RDA_model)
 ```
 
 ## Model Quality Check
+### permutation tests
 ```{r permutation-tests}
 set.seed(42)
 
@@ -105,12 +123,12 @@ anova.cca(RDA_model, permutations = 999)
 
 anova.cca(RDA_model, by = "axis", permutations = 999)
 
-envfit(RDA_model, season, permutations = 999)
+envfit(RDA_model, sst, permutations = 999)
 
 anova.cca(RDA_model, by = "term", permutations = 999)
 ```
 
-## Leave-one-out validation
+### Leave-one-out validation
 ```{r loo}
 set.seed(42)
 
@@ -148,13 +166,7 @@ df_biplot <- data.frame(
   RDA1   = biplot_scores[, 1] * 2,
   RDA2   = biplot_scores[, 2] * 2,
   Labels = rownames(biplot_scores)
-) #%>%
-  # mutate(Labels = recode(Labels,
-  #   winter = "winter",
-  #   summer = "summer",
-  #   spring   = "spring",
-  #   autumn   = "autumn"
-  # ))
+)
 
 hulls_df <- df_sites %>%
   group_by(chronology) %>%
@@ -212,6 +224,10 @@ ggplot() +
     colour = NULL
   ) +
   theme(legend.position = c(0.8, 0.85))
+
+
+
+ggsave(filename = here("results","plots","RDA_NISPvsClimate.png"),width = 30, height = 20,units = "cm")
 ```
 
 
