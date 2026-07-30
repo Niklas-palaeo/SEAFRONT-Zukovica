@@ -29,8 +29,8 @@ theme_set(theme_cowplot())
 # Data
 
 ```{r load-data}
-sst  <- read_csv(here("data", "zukovica_isotope.csv"), show_col_types = FALSE)
-fauna <- read_csv(here("data", "zukovica_nisp_per_unit.csv"))
+sst  <- read_csv(here("data","raw", "zukovica_isotope.csv"), show_col_types = FALSE)
+fauna <- read_csv(here("data","raw", "zukovica_nisp_per_unit.csv"))
 
 label_lookup <- tibble(
   clean = make.names(colnames(fauna %>% select(-excavation_unit))),
