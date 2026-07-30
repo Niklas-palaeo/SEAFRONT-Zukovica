@@ -1,0 +1,218 @@
+---
+title: "RDA Zukovica SST vs NISP"
+author: "Niklas Hausmann"
+date: "22.04.26"
+output: pdf_document
+---
+
+# Setup para seasons
+
+```{r setup, echo=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+
+pacman::p_load(
+  here,
+  janitor,
+  tidyverse,
+  cowplot,
+  patchwork,
+  RColorBrewer,
+  vegan,
+  ggrepel,
+  ggtext
+)
+
+theme_set(theme_cowplot())
+
+```
+
+# Data
+
+```{r load-data}
+sst  <- read_csv(here("data", "zukovica_isotope.csv"), show_col_types = FALSE)
+fauna <- read_csv(here("data", "zukovica_nisp_per_unit.csv"))
+
+label_lookup <- tibble(
+  clean = make.names(colnames(fauna %>% select(-excavation_unit))),
+  label = colnames(fauna %>% select(-excavation_unit)) %>%
+    str_replace_all("_", " ")
+)
+
+fauna <- fauna %>%
+  column_to_rownames("excavation_unit") %>% 
+  decostand("hellinger")
+
+shared_units <- intersect(rownames(fauna), rownames(sst))
+fauna <- fauna[shared_units, ]
+sst   <- sst[shared_units, ]
+
+```
+
+## Chronology
+
+```{r chronology}
+chron_colours <- c("deepskyblue3", "lightseagreen", "goldenrod1")
+
+chronology_df <- tibble(excavation_unit = shared_units) %>%
+  mutate(
+    chronology = case_when(
+      excavation_unit %in% c(
+        "124", "122", "121", "119", "116",
+        "115", "113.5", "114", "118", "113"
+      ) ~ "Mesolithic",
+
+      excavation_unit %in% c(
+        "108", "112", "25", "111", "24",
+        "23", "110", "22", "109", "107", "20"
+      ) ~ "Meso-Neo transition",
+
+      excavation_unit %in% c(
+        "19", "106", "17", "105", "16"
+      ) ~ "Early-Mid Neolithic transition",
+
+      TRUE ~ NA_character_
+    ) %>%
+      factor(levels = c(
+        "Mesolithic",
+        "Meso-Neo transition",
+        "Early-Mid Neolithic transition"
+      ))
+  )
+
+```
+
+
+# RDA
+## Model
+
+```{r rda-model}
+RDA_model <- rda(fauna,sst) # this does all of them
+RDA_model
+
+plot(RDA_model)
+#plot(RDA_model,scaling = "species", type = "n")
+
+#points(RDA_model, display = "sites", scaling = "species") 
+#text(RDA_model, display = "species", scaling = "species", col = "red")
+```
+
+## Model Quality Check
+```{r permutation-tests}
+set.seed(42)
+
+RsquareAdj(RDA_model)
+anova.cca(RDA_model, permutations = 999)
+
+anova.cca(RDA_model, by = "axis", permutations = 999)
+
+envfit(RDA_model, season, permutations = 999)
+
+anova.cca(RDA_model, by = "term", permutations = 999)
+```
+
+## Leave-one-out validation
+```{r loo}
+set.seed(42)
+
+loo_prop <- sapply(seq_len(nrow(fauna)), function(i) {
+  m <- rda(
+    fauna[-i, ] ~ d18O_min_summer + d18O_sd_winter + d18O_sd_summer + d18O_max_winter,
+    data = sst[-i, , drop = FALSE]
+  )
+  m$CCA$tot.chi / m$tot.chi
+})
+
+summary(loo_prop)
+```
+
+# Figures
+
+## RDA biplot
+
+```{r rda-plot, fig.width=12, fig.height=8}
+perc    <- round(100 * summary(RDA_model)$cont$importance[2, 1:2], 2)
+scaling <- 0
+
+site_scores    <- scores(RDA_model, display = "sites",   choices = 1:2, scaling = scaling)
+species_scores <- scores(RDA_model, display = "species", choices = 1:2, scaling = scaling)
+biplot_scores  <- scores(RDA_model, display = "bp",      choices = 1:2, scaling = scaling)
+
+df_sites <- data.frame(site_scores, Type = "Site", Labels = rownames(site_scores)) %>%
+  left_join(chronology_df %>% rename(Labels = excavation_unit), by = "Labels")
+
+df_species <- data.frame(species_scores, Type = "Species", Labels = rownames(species_scores)) %>%
+  left_join(label_lookup %>% rename(Labels = clean), by = "Labels") %>%
+  mutate(Labels = coalesce(label, Labels))
+
+df_biplot <- data.frame(
+  RDA1   = biplot_scores[, 1] * 2,
+  RDA2   = biplot_scores[, 2] * 2,
+  Labels = rownames(biplot_scores)
+) #%>%
+  # mutate(Labels = recode(Labels,
+  #   winter = "winter",
+  #   summer = "summer",
+  #   spring   = "spring",
+  #   autumn   = "autumn"
+  # ))
+
+hulls_df <- df_sites %>%
+  group_by(chronology) %>%
+  group_modify(~ .x[chull(.x$RDA1, .x$RDA2), ]) %>%
+  group_modify(~ bind_rows(.x, .x[1, ])) %>%
+  ungroup()
+
+ggplot() +
+  geom_blank(data = bind_rows(
+    df_sites   %>% select(RDA1, RDA2),
+    df_species %>% select(RDA1, RDA2)
+  ), aes(x = RDA1, y = RDA2)) +
+  geom_polygon(
+    data = hulls_df %>% na.omit(),
+    aes(x = RDA1, y = RDA2, fill = chronology, group = chronology),
+    alpha = 0.2, show.legend = FALSE
+  ) +
+  geom_point(
+    data = df_sites,
+    aes(x = RDA1, y = RDA2, col = chronology),
+    size = 4
+  ) +
+  geom_text_repel(
+    data           = df_species,
+    aes(x = RDA1, y = RDA2, label = Labels),
+    colour         = "grey40",
+    fontface       = "bold",
+    size           = 3,
+    max.overlaps   = Inf,
+    box.padding    = 0,
+    point.padding  = 0,
+    segment.colour = "grey70"
+  ) +
+  geom_segment(
+    data = df_biplot,
+    aes(x = 0, y = 0, xend = RDA1, yend = RDA2),
+    arrow     = arrow(length = unit(7, "pt"), type = "closed"),
+    color     = "grey25",
+    linewidth = 1
+  ) +
+  geom_text(
+    data     = df_biplot,
+    aes(x = RDA1 * 1.15, y = RDA2 * 1.15, label = Labels),
+    color    = "grey25",
+    size     = 5,
+    fontface = "bold",
+    hjust    = 0.5,
+    vjust    = 0.5
+  ) +
+  scale_fill_manual(values   = chron_colours) +
+  scale_colour_manual(values = chron_colours) +
+  labs(
+    x      = paste0("RDA1 (", perc[1], "%)"),
+    y      = paste0("RDA2 (", perc[2], "%)"),
+    colour = NULL
+  ) +
+  theme(legend.position = c(0.8, 0.85))
+```
+
+
+
