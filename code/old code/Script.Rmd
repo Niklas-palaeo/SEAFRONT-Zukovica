@@ -1,0 +1,178 @@
+---
+title: "Template Title"
+author: "Niklas Hausmann"
+date: "Today"
+output: pdf_document
+---
+
+# Libraries 
+```{r Libraries,echo=FALSE,message = FALSE,warning = FALSE}
+knitr::opts_chunk$set(echo=FALSE,message = FALSE,warning = FALSE)
+
+{
+  pacman::p_load(
+    here,
+    janitor,
+    tidyverse,ggtext,
+    cowplot,ggx,
+    patchwork,
+    RColorBrewer) 
+  
+  theme_set(theme_cowplot())
+}
+```
+
+# Data
+
+# calbp <- readr::read_csv(here("data","calBP.csv"), show_col_types = FALSE) %>% 
+```{r}
+
+# 
+# calbp <- readr::read_csv(here("data","calBP_Graeme.csv"), show_col_types = FALSE) %>% 
+# 
+#   clean_names()
+# 
+# D18O <- D18O_undated %>% 
+#               left_join(
+#                 calbp,
+#                 by = c("spit", "cpp_context")
+#               ) %>% 
+#   mutate(min_cal_bp=as.numeric(min_cal_bp)) %>% 
+#       mutate(spit_cpp = coalesce(as.character(spit), as.character(cpp_context))) %>% 
+#     mutate(spit_cpp = factor(spit_cpp, 
+#                          levels = c("78","10","133","11","135","7","6-8","6-9",  "8-9","9",
+#                                     "130","131","132","129"))) %>% 
+#   filter(spit_cpp!="129")
+# 
+# rm(D18O_undated,RAM_D18O,AP_D18O,calbp)
+
+
+```
+
+
+# Plots
+
+# Plot climate through time
+
+```{r}
+
+D18O %>% 
+  filter(origin=="RAM") %>% 
+  group_by(period,phase,spit_cpp,season) %>% 
+  mutate(q0   = quantile(d18o, 0.00, na.rm = TRUE),
+            q25  = quantile(d18o, 0.25, na.rm = TRUE),
+            q50  = quantile(d18o, 0.50, na.rm = TRUE),
+            q75  = quantile(d18o, 0.75, na.rm = TRUE),
+            q100 = quantile(d18o, 1.00, na.rm = TRUE),
+            .groups = "drop") %>% 
+  pivot_longer(cols = starts_with("q"),
+                names_to = "quantile",
+                values_to = "qd18o") %>% 
+  ggplot()+
+  aes(y=qd18o,col=season)+
+  geom_segment(aes(x=min_cal_bp,xend=max_cal_bp,y=qd18o,yend=qd18o))+
+  xlim(17.5,2)+
+  scale_y_reverse()
+
+
+```
+
+
+```{r}
+
+q <- D18O %>%
+    filter(origin == "RAM") %>%
+    group_by(period, phase, spit_cpp, season, min_cal_bp, max_cal_bp,excavation) %>%
+    summarise(
+        q0   = quantile(d18o, 0.00, na.rm = TRUE),
+        q25  = quantile(d18o, 0.25, na.rm = TRUE),
+        q50  = quantile(d18o, 0.50, na.rm = TRUE),
+        q75  = quantile(d18o, 0.75, na.rm = TRUE),
+        q100 = quantile(d18o, 1.00, na.rm = TRUE),
+        .groups = "drop"
+    )
+
+# rectangles: outer (q0–q100) and inner (q25–q75)
+rects <- bind_rows(
+    q %>% transmute(period, phase,spit_cpp, season,excavation,
+                    xmin = min_cal_bp, xmax = max_cal_bp, ymin = q0,   ymax = q100, band = "0–100%"),
+    q %>% transmute(period, phase, spit_cpp, season,excavation,
+                    xmin = min_cal_bp, xmax = max_cal_bp, ymin = q25,  ymax = q75,  band = "25–75%")
+) 
+
+# median as a line
+meds <- q %>% transmute(period, phase, spit_cpp, season,excavation,
+                        xmin = min_cal_bp, xmax = max_cal_bp, y = q50)
+
+
+ggplot() +
+  geom_rect(
+    data = rects,
+    aes(
+      xmin = xmin,
+      xmax = xmax,
+      ymin = ymin,
+      ymax = ymax,
+      fill = season
+    ),
+    alpha = 0.15
+  ) +
+  geom_segment(
+    data = meds,
+    aes(
+      x = xmin,
+      xend = xmax,
+      y = y,
+      yend = y,
+      colour = season
+    ),
+    linewidth = 0.5
+  ) +
+  labs(
+    x = "cal BP",
+    y = expression(delta ^ {
+      18
+    } * O),
+    fill = NULL,
+    colour = "Season"
+  ) +
+  scale_fill_manual(values = c(
+    "Winter" = "deepskyblue",
+    "Summer" = "lightcoral"
+  )) +
+  scale_colour_manual(values = c(
+    "Winter" = "deepskyblue",
+    "Summer" = "lightcoral"
+  )) +
+  geom_text(data = meds, aes(
+    x = (xmin + xmax) / 2,
+    y = y - 0.06,
+    label = spit_cpp
+  )) +
+  # facet_wrap(~excavation)+
+  theme(legend.position = "none",
+        plot.title = element_markdown(size = 12),
+        plot.subtitle = element_markdown(size = 12)) +
+  scale_x_reverse(limits = c(12.5, 7),
+                  breaks = c(12.5, 11, 10, 9, 8,7)) +
+  ggtitle("Haua Fteah δ<sup>18</sup>O", subtitle = "Seasonal variation between <b><span style='color:lightcoral;'>summer</span></b> and <b><span style='color:deepskyblue;'>winter</span></b> values") +
+  geom_hline(yintercept = c(2.4,-0.6))+
+              annotate("text",
+                     x = 12, y = 2.4, label = "Neo Winter low", vjust = -0.5, hjust = 0, size = 4) +
+            annotate("text",
+                     x = 12, y = -0.6, label = "Neo Summer high", vjust = -0.5, hjust = 0, size = 4)+
+   geom_hline(yintercept = c(2.6,-0.1))+
+              annotate("text",
+                     x = 12, y = 2.6, label = "Caps Winter low", vjust = -0.5, hjust = 0, size = 4) +
+            annotate("text",
+                     x = 12, y = -0.1, label = "Caps Summer high", vjust = -0.5, hjust = 0, size = 4)+
+    # geom_hline(yintercept = c(4.1,1.5))+
+    #           annotate("text",
+            #          x = 12, y = 4.1, label = "Ora Winter low", vjust = -0.5, hjust = 0, size = 4) +
+            # annotate("text",
+            #          x = 12, y = 1.5, label = "Ora Summer high", vjust = -0.5, hjust = 0, size = 4)+
+  scale_y_reverse() 
+
+
+
+```

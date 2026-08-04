@@ -1,0 +1,131 @@
+---
+title: "Correlations"
+author: "Niklas Hausmann"
+date: "Today"
+output: pdf_document
+---
+
+# Libraries 
+```{r Libraries,echo=FALSE,message = FALSE,warning = FALSE}
+knitr::opts_chunk$set(echo=FALSE,message = FALSE,warning = FALSE)
+
+{
+  pacman::p_load(
+    here,
+    janitor,
+    tidyverse,vegan,
+    cowplot,ggx,ggpubr,
+    patchwork,
+    RColorBrewer) 
+  
+  theme_set(theme_cowplot())
+}
+```
+
+# Data
+
+```{r}
+
+sst_raw  <- read_csv(here("data","raw", "zukovica_isotope.csv"), show_col_types = FALSE) 
+
+fauna_raw <- read_csv(here("data","raw", "zukovica_nisp_per_unit.csv"), show_col_types = FALSE) 
+
+label_lookup <- tibble(
+  clean = make.names(colnames(fauna_raw %>% select(-excavation_unit))),
+  label = colnames(fauna_raw %>% select(-excavation_unit)) %>%
+    str_replace_all("_", " ")
+)
+
+sst  <- sst_raw |> 
+    column_to_rownames("excavation_unit")# %>% 
+    # na.omit() |> 
+  # decostand("normalize",MARGIN = 2) these get normalised later
+
+fauna <- fauna_raw |> 
+    column_to_rownames("excavation_unit") #%>% 
+  # decostand("hellinger",MARGIN = 2)
+
+
+shared_units <- intersect(rownames(fauna), rownames(sst))
+fauna <- fauna[shared_units, ]
+sst   <- sst[shared_units, ]
+
+## Chronology
+chron_colours <- c("deepskyblue3", "lightseagreen", "goldenrod1")
+
+chronology_df <- tibble(excavation_unit = shared_units) %>%
+  mutate(
+    chronology = case_when(
+      excavation_unit %in% c(
+        "124", "122", "121", "119", "116",
+        "115", "113.5", "114", "118", "113"
+      ) ~ "Mesolithic",
+
+      excavation_unit %in% c(
+        "108", "112", "25", "111", "24",
+        "23", "110", "22", "109", "107", "20"
+      ) ~ "Meso-Neo transition",
+
+      excavation_unit %in% c(
+        "19", "106", "17", "105", "16"
+      ) ~ "Early-Mid Neolithic transition",
+
+      TRUE ~ NA_character_
+    ) %>%
+      factor(levels = c(
+        "Mesolithic",
+        "Meso-Neo transition",
+        "Early-Mid Neolithic transition"
+      ))
+  )
+
+```
+
+## Joining Datasets
+```{r}
+Corr_data <- cbind(fauna,sst) %>% 
+  mutate(excavation_unit=rownames(.)) |> 
+  select(excavation_unit,everything()) %>%
+  pivot_longer(names_to = "species", values_to = "nisp",cols = 2:19) %>%  
+  pivot_longer(names_to = "env_data", values_to = "env_values",cols = 2:9) %>% 
+  left_join(chronology_df,by="excavation_unit")
+
+Correlations_of_interest <- Corr_data |> 
+  group_by(species, env_data) %>%
+  nest() %>%
+  mutate(correlation = map(data, ~ tryCatch({
+    cor.test(.x$nisp, .x$env_values, method = "pearson")
+  }, error = function(e) NULL))) %>%
+  # Correctly filter out NULL results outside of mutate
+  filter(map_lgl(correlation, ~ !is.null(.x))) %>%
+  mutate(tidy_cor = map(correlation, broom::tidy)) %>%
+  select(-data, -correlation) %>%
+  unnest(tidy_cor) %>%
+  mutate(species_env = paste(species, env_data, sep = "_vs_"),
+         r.squared = estimate^2) %>%
+  select(species_env, estimate, p.value, r.squared) |>  # This makes many warning but it's ok. Lots of NAs are being created, that's why.
+  filter(p.value<0.05) |> 
+  arrange(p.value) 
+
+Correlations_of_interest
+
+```
+
+
+# Plots
+```{r}
+Corr_data |> 
+  filter(env_data=="d18O_min_summer") %>% # here to change the env variable
+  mutate(env_values=scale(env_values)) |> 
+  filter(species%in%Correlations_of_interest$species) |> #here you can also add a ,species=="animal name") |> 
+  ggplot()+
+  aes(env_values,nisp)+
+    geom_smooth(method = "lm",se = FALSE,col="grey40",linetype="dashed")+
+  geom_point(aes(col=chronology))+
+  # ylim(0,0.76)+
+  scale_color_manual(values = chron_colours) + 
+  stat_cor(aes(label = paste(..r.label.., ..p.label.., sep = "~`,`~")),p.accuracy = 0.01, r.accuracy = 0.01)+ 
+    labs(title="Summer Temperature", x="Normalised temperature", y="Normalised NISP", col="")+
+  facet_wrap(~species,scales = "free")
+
+```

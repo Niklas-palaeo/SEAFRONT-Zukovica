@@ -38,12 +38,24 @@ label_lookup <- tibble(
     str_replace_all("_", " ")
 )
 
+<<<<<<< HEAD:code/RDA_Template.Rmd
 fauna <- fauna %>%
   column_to_rownames("excavation_unit") %>% 
   #decostand("hellinger")
 sst <- sst %>%
   column_to_rownames("excavation_unit") %>% 
   #decostand("hellinger")
+=======
+sst  <- sst_raw |> 
+    column_to_rownames("excavation_unit") %>% 
+    na.omit() |> 
+  decostand("standardize",MARGIN = 2)
+
+fauna <- fauna_raw |> 
+    column_to_rownames("excavation_unit") %>% 
+  decostand("hellinger",MARGIN = 1)
+
+>>>>>>> 3e649fe9a205039a85b1327ddf62c7db9db6772c:code/RDA_Climate.Rmd
 
 shared_units <- intersect(rownames(fauna), rownames(sst))
 fauna <- fauna[shared_units, ]
@@ -89,8 +101,28 @@ chronology_df <- tibble(excavation_unit = shared_units) %>%
 ## Model
 
 ```{r rda-model}
+<<<<<<< HEAD:code/RDA_Template.Rmd
 RDA_model <- rda(fauna,sst) # this does all of them
 RDA_model
+=======
+RDA_model_general <- rda(fauna,sst) # this does all of them
+RDA_model_general
+
+RDA_model_selected <- rda(fauna ~ 
+                    d18O_min_summer +
+                   d18O_sd_summer +
+                   d18O_sd_winter +
+                   # d18O_range_winter+
+                   # d18O_range_summer+
+                    d18O_max_winter,
+                  data = sst
+                )
+
+RDA_model_selected
+
+# RDA_model <- RDA_model_general
+RDA_model <- RDA_model_selected
+>>>>>>> 3e649fe9a205039a85b1327ddf62c7db9db6772c:code/RDA_Climate.Rmd
 
 plot(RDA_model)
 #plot(RDA_model,scaling = "species", type = "n")
@@ -101,7 +133,7 @@ plot(RDA_model)
 
 ## Model Quality Check
 ```{r permutation-tests}
-set.seed(42)
+set.seed(100)
 
 RsquareAdj(RDA_model)
 anova.cca(RDA_model, permutations = 999)
@@ -119,8 +151,12 @@ set.seed(42)
 
 loo_prop <- sapply(seq_len(nrow(fauna)), function(i) {
   m <- rda(
-    fauna[-i, ] ~ d18O_min_summer + d18O_sd_winter + d18O_sd_summer + d18O_max_winter,
-    data = sst[-i, , drop = FALSE]
+    fauna[-i, ] ~ d18O_min_summer +
+                   d18O_sd_summer +
+                   d18O_sd_winter +
+                   # d18O_range_winter+
+                   # d18O_range_summer+
+                    d18O_max_winter, data=sst[-i, , drop = FALSE]
   )
   m$CCA$tot.chi / m$tot.chi
 })
@@ -207,6 +243,15 @@ ggplot() +
     hjust    = 0.5,
     vjust    = 0.5
   ) +
+    geom_text(
+    data     = df_sites,
+    aes(x = RDA1+0.05 , y = RDA2 , label = Labels),
+    color    = "grey25",
+    size     = 5,
+    fontface = "bold",
+    hjust    = 0.5,
+    vjust    = 0.5
+  ) +
   scale_fill_manual(values   = chron_colours) +
   scale_colour_manual(values = chron_colours) +
   labs(
@@ -214,8 +259,14 @@ ggplot() +
     y      = paste0("RDA2 (", perc[2], "%)"),
     colour = NULL
   ) +
+<<<<<<< HEAD:code/RDA_Template.Rmd
   theme(legend.position = c(0.8, 0.85))
+=======
+  theme(legend.position = c(0.1, 0.85))
+
+
+
+ggsave(filename = here("results","plots","RDA_NISPvsClimate.png"),width = 30, height = 20,units = "cm")
+>>>>>>> 3e649fe9a205039a85b1327ddf62c7db9db6772c:code/RDA_Climate.Rmd
 ```
-
-
 
