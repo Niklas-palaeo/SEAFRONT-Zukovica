@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 ---
 title: "Zukovica isotopes"
 output: html_document
@@ -262,3 +263,265 @@ ggsave(
 
 
 
+=======
+---
+title: "Zukovica isotopes"
+output: html_document
+date: "2026-08-04"
+---
+
+```{r setup, include=FALSE}
+sst_raw <- read_csv(
+  here("data", "raw", "zukovica_isotopes_all.csv"),
+  show_col_types = FALSE
+) |>
+  mutate(
+    excavation_unit = as.numeric(excavation_unit),
+    `18Ovalue` = as.numeric(`18Ovalue`)
+  ) |>
+  group_by(excavation_unit, season) |>
+  summarise(
+    q0   = quantile(`18Ovalue`, 0.00, na.rm = TRUE),
+    q25  = quantile(`18Ovalue`, 0.25, na.rm = TRUE),
+    q50  = quantile(`18Ovalue`, 0.50, na.rm = TRUE),
+    q75  = quantile(`18Ovalue`, 0.75, na.rm = TRUE),
+    q100 = quantile(`18Ovalue`, 1.00, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  mutate(
+    order = case_when(
+      excavation_unit == 124   ~ 1,
+      excavation_unit == 122   ~ 2,
+      excavation_unit == 121   ~ 3,
+      excavation_unit == 119   ~ 4,
+      excavation_unit %in% c(116, 115) ~ 5,
+      excavation_unit == 113.5 ~ 6,
+      excavation_unit == 114   ~ 7,
+      excavation_unit == 118   ~ 8,
+      excavation_unit == 113   ~ 9,
+      excavation_unit %in% c(108, 112, 25) ~ 10,
+      excavation_unit %in% c(111, 24) ~ 11,
+      excavation_unit == 23    ~ 12,
+      excavation_unit == 110   ~ 13,
+      excavation_unit == 22    ~ 14,
+      excavation_unit == 109   ~ 15,
+      excavation_unit %in% c(107, 20) ~ 16,
+      excavation_unit == 19    ~ 17,
+      excavation_unit == 106   ~ 18,
+      excavation_unit == 17    ~ 19,
+      excavation_unit == 105   ~ 20,
+      excavation_unit == 16    ~ 21
+    ),
+    excavation_unit = factor(
+      excavation_unit,
+      levels = c(
+        124,122,121,119,116,115,
+        113.5,114,118,113,
+        108,112,25,
+        111,24,
+        23,
+        110,
+        22,
+        109,
+        107,20,
+        19,
+        106,
+        17,
+        105,
+        16
+      )
+    )
+  ) |>
+  arrange(order, excavation_unit, season)
+```
+```{r}
+
+chronology <- tibble(
+  order = 1:21,
+
+  min_cal_bp = c(
+    9450, 9300, 9150, 9000,
+    8900,   # 116 / 115
+
+    8670,   # 113.5 (Dated)
+    8505,   # 114 (Interpolated)
+    8340,   # 118 (Interpolated)
+    8210,   # 113 (Dated)
+
+    7820,   # 108 / 112 / 25 (Dated)
+    7680,   # 111 / 24 (Dated)
+
+    7550,
+    7420,
+    7290,
+    7160,
+
+    7030,
+
+    6900,
+    6770,
+    6640,
+    6510,
+    6380
+  ),
+
+  max_cal_bp = c(
+    9600, 9450, 9300, 9150,
+    9000,   # 116 / 115
+
+    8900,   # 113.5 (Dated)
+    8670,   # 114 (Interpolated)
+    8505,   # 118 (Interpolated)
+    8340,   # 113 (Dated)
+
+    8050,   # 108 / 112 / 25 (Dated)
+    7740,   # 111 / 24 (Dated)
+
+    7680,
+    7550,
+    7420,
+    7290,
+
+    7160,
+
+    7030,
+    6900,
+    6770,
+    6640,
+    6510
+  ),
+
+  chronology = c(
+    rep("Extrapolated", 5),
+    "Dated",
+    "Interpolated",
+    "Interpolated",
+    "Dated",
+    "Dated",
+    "Dated",
+    rep("Extrapolated", 10)
+  )
+)
+
+sst_plot <- sst_raw |>
+  left_join(chronology, by = "order")
+
+```
+
+
+
+```{r}
+
+rects <- bind_rows(
+  sst_plot |>
+    filter(!is.na(min_cal_bp)) |>
+    transmute(
+      excavation_unit,
+      season,
+      xmin = min_cal_bp,
+      xmax = max_cal_bp,
+      ymin = q0,
+      ymax = q100,
+      band = "0–100%"
+    ),
+
+  sst_plot |>
+    filter(!is.na(min_cal_bp)) |>
+    transmute(
+      excavation_unit,
+      season,
+      xmin = min_cal_bp,
+      xmax = max_cal_bp,
+      ymin = q25,
+      ymax = q75,
+      band = "25–75%"
+    )
+)
+
+meds <- sst_plot |>
+  filter(!is.na(min_cal_bp)) |>
+  transmute(
+    excavation_unit,
+    season,
+    xmin = min_cal_bp,
+    xmax = max_cal_bp,
+    y = q50
+  )
+
+```
+
+```{r}
+p <- ggplot() +
+
+  geom_rect(
+    data = rects,
+    aes(
+      xmin = xmin,
+      xmax = xmax,
+      ymin = ymin,
+      ymax = ymax,
+      fill = season
+    ),
+    alpha = 0.15
+  ) +
+
+  geom_segment(
+    data = meds,
+    aes(
+      x = xmin,
+      xend = xmax,
+      y = y,
+      yend = y,
+      colour = season
+    ),
+    linewidth = 0.6
+  ) +
+
+  geom_text(
+    data = meds,
+    aes(
+      x = (xmin + xmax) / 2,
+      y = y - 0.05,
+      label = excavation_unit
+    ),
+    size = 3
+  ) +
+
+  scale_fill_manual(values = c(
+    Winter = "deepskyblue",
+    Summer = "lightcoral"
+  )) +
+
+  scale_colour_manual(values = c(
+    Winter = "deepskyblue",
+    Summer = "lightcoral"
+  )) +
+
+  scale_x_reverse() +
+  scale_y_reverse() +
+
+  labs(
+    x = "cal BP",
+    y = expression(delta^18*O),
+    fill = NULL,
+    colour = "Season",
+    title = expression(Zukovica~delta^18*O)
+  ) +
+
+  theme_cowplot()
+
+p
+
+```
+
+```{r save_plot}
+
+ggsave(
+  filename = here("results", "zukovica_isotopes_plot.png"),
+  plot = p,
+  width = 10,
+  height = 6,
+  dpi = 300
+)
+
+```
