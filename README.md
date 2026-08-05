@@ -1,9 +1,14 @@
-# Research repository (resrepo) template
+# Updates
 
-This template provides a structured repository designed to help with project management. Scientific projects contain both code and data. Git is designed to manage software code, but it is not suited to track large data files. This template encourages good habits to manage your data alongside your code, ensuring reproducible science and a tidy repository that can used for publication of your project.
+Hi Niklas,
 
-Start by creating a repository for your project using this repo as a template.Within the EvolEcolGroup GitHub, if you click `New` to create a new project repository you will be offered the chance to use a `Repository template; Start your repository with a template repository's contents`. Here there is a dropdown box where you can select this template `template_repo`.
+Here is a brief update of the progress I made so far:
 
-You can modify this landing page by describing your project. The next step will be to bring some data in; follow the instructions on how to use this repository found in [resrepo_manual.md](resrepo_manual.md) in the root directory of the repository. 
+1. Isotopes and Zukovica
+New script for the isotope analyses, adapted from the HF code.
+New file to the raw data folder containing all the isotope values, together with the data cleaning.
 
-
+2. Correlations
+New file to the raw data folder where I grouped the species into broader categories and ran the correlation analyses.
+The resulting plots have been saved in the results folder, both for individual species and for the grouped categories.
+In the correlation script you shared with me, I added a small part that automatically generates and saves all the correlation plots.
