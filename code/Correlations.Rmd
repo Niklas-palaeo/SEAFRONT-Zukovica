@@ -28,7 +28,7 @@ knitr::opts_chunk$set(echo=FALSE,message = FALSE,warning = FALSE)
 
 sst_raw  <- read_csv(here("data","raw", "zukovica_isotope.csv"), show_col_types = FALSE) 
 
-fauna_raw <- read_csv(here("data","raw", "zukovica_nisp_per_unit.csv"), show_col_types = FALSE) 
+fauna_raw <- read_csv(here("data","raw", "zukovica_nisp_groups_per_unit.csv"), show_col_types = FALSE) 
 
 label_lookup <- tibble(
   clean = make.names(colnames(fauna_raw %>% select(-excavation_unit))),
@@ -86,7 +86,7 @@ chronology_df <- tibble(excavation_unit = shared_units) %>%
 Corr_data <- cbind(fauna,sst) %>% 
   mutate(excavation_unit=rownames(.)) |> 
   select(excavation_unit,everything()) %>%
-  pivot_longer(names_to = "species", values_to = "nisp",cols = 2:19) %>%  
+  pivot_longer(names_to = "species", values_to = "nisp",cols = 2:10) %>%  
   pivot_longer(names_to = "env_data", values_to = "env_values",cols = 2:9) %>% 
   left_join(chronology_df,by="excavation_unit")
 
@@ -128,4 +128,102 @@ Corr_data |>
     labs(title="Summer Temperature", x="Normalised temperature", y="Normalised NISP", col="")+
   facet_wrap(~species,scales = "free")
 
+```
+
+
+library(broom)
+library(purrr)
+library(ggpubr)
+
+```{r}
+#all_plots
+
+results <- Corr_data %>%
+  group_by(species, env_data) %>%
+  nest() %>%
+  mutate(
+
+    
+    cor_test = map(data, ~ cor.test(.x$nisp, .x$env_values,
+                                    method = "pearson")),
+
+    stats = map(cor_test, broom::tidy),
+
+  plot = map2(data, stats, ~{
+
+  r <- round(.y$estimate, 2)
+  p <- signif(.y$p.value, 3)
+
+  ggplot(.x,
+         aes(x = env_values,
+             y = nisp)) +
+
+    geom_point(size = 3) +
+
+    geom_smooth(
+      method = "lm",
+      se = FALSE,
+      colour = "black",
+      linetype = "dashed",
+      linewidth = 0.8
+    ) +
+
+    annotate(
+      "text",
+      x = Inf,
+      y = Inf,
+      label = paste0("r = ", r, "\np = ", p),
+      hjust = 1.1,
+      vjust = 1.2,
+      size = 4
+    ) +
+
+    labs(
+      x = unique(.x$env_data),
+      y = unique(.x$species)
+    ) +
+
+    theme_classic()
+
+})
+
+  )
+
+
+correlation_table <- results %>%
+  unnest(stats) %>%
+  select(species,
+         env_data,
+         estimate,
+         statistic,
+         p.value,
+         conf.low,
+         conf.high)
+
+correlation_table
+```
+```{r}
+plot_dir <- "C:/Users/arnizmateos/Documents/GitHub/SEAFRONT-Zukovica/results/plots"
+
+dir.create(plot_dir, recursive = TRUE, showWarnings = FALSE)
+
+walk2(
+  results$plot,
+  file.path(
+    plot_dir,
+    paste0(
+      make.names(results$species),
+      "_vs_",
+      make.names(results$env_data),
+      ".png"
+    )
+  ),
+  ~ ggsave(
+      filename = .y,
+      plot = .x,
+      width = 5,
+      height = 4,
+      dpi = 300
+    )
+)
 ```
