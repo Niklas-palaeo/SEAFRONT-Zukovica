@@ -227,3 +227,370 @@ walk2(
     )
 )
 ```
+
+#correlations per season
+
+```{r}
+season_raw <- read_csv(
+  here(
+    "data",
+    "raw",
+    "zukovica_seasons.csv"
+  ),
+  show_col_types = FALSE
+)
+
+fauna_raw <- read_csv(
+  here(
+    "data",
+    "raw",
+    "zukovica_nisp_groups_per_unit.csv"
+  ),
+  show_col_types = FALSE
+)
+
+label_lookup <- tibble(
+  clean = make.names(
+    colnames(
+      fauna_raw %>%
+        select(-excavation_unit)
+    )
+  ),
+  label = colnames(
+    fauna_raw %>%
+      select(-excavation_unit)
+  ) %>%
+    str_replace_all("_", " ")
+)
+
+season <- season_raw |> 
+  column_to_rownames("excavation_unit")
+
+fauna <- fauna_raw |> 
+  column_to_rownames("excavation_unit")
+
+shared_units <- intersect(
+  rownames(fauna),
+  rownames(season)
+)
+
+fauna <- fauna[shared_units, ]
+season <- season[shared_units, ]
+
+## Chronology
+
+chron_colours <- c(
+  "deepskyblue3",
+  "lightseagreen",
+  "goldenrod1"
+)
+
+chronology_df <- tibble(
+  excavation_unit = shared_units
+) %>%
+  mutate(
+    chronology = case_when(
+      excavation_unit %in% c(
+        "124", "122", "121", "119", "116",
+        "115", "113.5", "114", "118", "113"
+      ) ~ "Mesolithic",
+
+      excavation_unit %in% c(
+        "108", "112", "25", "111", "24",
+        "23", "110", "22", "109", "107", "20"
+      ) ~ "Meso-Neo transition",
+
+      excavation_unit %in% c(
+        "19", "106", "17", "105", "16"
+      ) ~ "Early-Mid Neolithic transition",
+
+      TRUE ~ NA_character_
+    ) %>%
+      factor(
+        levels = c(
+          "Mesolithic",
+          "Meso-Neo transition",
+          "Early-Mid Neolithic transition"
+        )
+      )
+  )
+```
+
+```{r}
+Corr_data <- cbind(
+  fauna,
+  season
+) %>% 
+  mutate(
+    excavation_unit = rownames(.)
+  ) |> 
+  select(
+    excavation_unit,
+    everything()
+  ) %>%
+  pivot_longer(
+    names_to = "species",
+    values_to = "nisp",
+    cols = 2:(1 + ncol(fauna))
+  ) %>%  
+  pivot_longer(
+    names_to = "env_data",
+    values_to = "env_values",
+    cols = 2:5
+  ) %>% 
+  left_join(
+    chronology_df,
+    by = "excavation_unit"
+  )
+
+Correlations_of_interest <- Corr_data |> 
+  group_by(
+    species,
+    env_data
+  ) %>%
+  nest() %>%
+  mutate(
+    correlation = map(
+      data,
+      ~ tryCatch(
+        {
+          cor.test(
+            .x$nisp,
+            .x$env_values,
+            method = "pearson"
+          )
+        },
+        error = function(e) NULL
+      )
+    )
+  ) %>%
+  filter(
+    map_lgl(
+      correlation,
+      ~ !is.null(.x)
+    )
+  ) %>%
+  mutate(
+    tidy_cor = map(
+      correlation,
+      broom::tidy
+    )
+  ) %>%
+  select(
+    -data,
+    -correlation
+  ) %>%
+  unnest(tidy_cor) %>%
+  mutate(
+    species_env = paste(
+      species,
+      env_data,
+      sep = "_vs_"
+    ),
+    r.squared = estimate^2
+  ) %>%
+  select(
+    species_env,
+    estimate,
+    p.value,
+    r.squared
+  ) |> 
+  filter(
+    p.value < 0.05
+  ) |> 
+  arrange(p.value)
+
+Correlations_of_interest
+```
+
+# Plots
+```{r season-plots}
+season_plot_data <- Corr_data %>%
+  filter(
+    env_data %in% c(
+      "Winter",
+      "Spring",
+      "Summer",
+      "Autumn"
+    ),
+    species %in% Correlations_of_interest$species
+  )
+
+ggplot(
+  season_plot_data,
+  aes(
+    x = env_values,
+    y = nisp
+  )
+) +
+  geom_smooth(
+    method = "lm",
+    se = FALSE,
+    colour = "grey40",
+    linetype = "dashed"
+  ) +
+  geom_point(
+    aes(colour = chronology)
+  ) +
+  scale_color_manual(
+    values = chron_colours
+  ) +
+  stat_cor(
+    aes(
+      label = paste(
+        ..r.label..,
+        ..p.label..,
+        sep = "~`,`~"
+      )
+    ),
+    p.accuracy = 0.01,
+    r.accuracy = 0.01
+  ) +
+  labs(
+    x = "Season value",
+    y = "NISP",
+    colour = ""
+  ) +
+  facet_grid(
+    env_data ~ species,
+    scales = "free"
+  )
+```
+
+library(broom)
+library(purrr)
+library(ggpubr)
+
+```{r all_plots}
+
+results <- Corr_data %>%
+  group_by(species, env_data) %>%
+  nest() %>%
+  mutate(
+
+    # Pearson correlation
+    cor_test = map(
+      data,
+      ~ cor.test(
+        .x$nisp,
+        .x$env_values,
+        method = "pearson"
+      )
+    ),
+
+    # Extract statistics
+    stats = map(
+      cor_test,
+      broom::tidy
+    ),
+
+    # Create one plot per species × season
+    plot = map2(
+      data,
+      stats,
+      ~ {
+
+        r <- round(.y$estimate, 2)
+        p <- signif(.y$p.value, 3)
+
+        ggplot(
+          .x,
+          aes(
+            x = env_values,
+            y = nisp
+          )
+        ) +
+
+          geom_point(
+            aes(colour = chronology),
+            size = 3
+          ) +
+
+          geom_smooth(
+            method = "lm",
+            se = FALSE,
+            colour = "black",
+            linetype = "dashed",
+            linewidth = 0.8
+          ) +
+
+          annotate(
+            "text",
+            x = Inf,
+            y = Inf,
+            label = paste0(
+              "r = ", r,
+              "\np = ", p
+            ),
+            hjust = 1.1,
+            vjust = 1.2,
+            size = 4
+          ) +
+
+          scale_color_manual(
+            values = chron_colours
+          ) +
+
+          labs(
+            title = paste(
+              unique(.x$species),
+              "-",
+              unique(.x$env_data)
+            ),
+            x = unique(.x$env_data),
+            y = "NISP",
+            colour = ""
+          ) +
+
+          theme_classic()
+      }
+    )
+  )
+
+
+# Correlation table
+correlation_table <- results %>%
+  unnest(stats) %>%
+  select(
+    species,
+    env_data,
+    estimate,
+    statistic,
+    p.value,
+    conf.low,
+    conf.high
+  )
+
+correlation_table
+```
+
+```{r save-all-plots}
+
+plot_dir <- "C:/Users/arnizmateos/Documents/GitHub/SEAFRONT-Zukovica/results/plots"
+
+dir.create(
+  plot_dir,
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+
+walk2(
+  results$plot,
+  file.path(
+    plot_dir,
+    paste0(
+      make.names(results$species),
+      "_vs_",
+      make.names(results$env_data),
+      ".png"
+    )
+  ),
+  ~ ggsave(
+    filename = .y,
+    plot = .x,
+    width = 5,
+    height = 4,
+    dpi = 300
+  )
+)
+```

@@ -1,0 +1,659 @@
+---
+title: "RDA_seasons_nisp_per_period"
+author: "Rosa Arniz"
+date: "2026-09-28"
+output: html_document
+---
+---
+title: "RDA_seasons_NISP_per_period"
+output: html_document
+date: "2026-09-28"
+---
+
+```{r setup, echo=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+
+pacman::p_load(
+  here,
+  janitor,
+  tidyverse,
+  cowplot,
+  patchwork,
+  RColorBrewer,
+  vegan,
+  ggrepel,
+  ggtext
+)
+
+theme_set(theme_cowplot())
+
+```
+
+```{r load-data}
+sst <- read_csv(
+  here("data", "raw", "zukovica_isotope.csv"),
+  show_col_types = FALSE
+) %>%
+  column_to_rownames("excavation_unit") %>%
+  decostand("normalize")
+
+season <- read_csv(
+  here("data","raw", "zukovica_seasons.csv"),
+  show_col_types = FALSE
+)
+
+fauna <- read_csv(
+  here("data","raw","zukovica_nisp_groups_per_unit.csv"),
+  show_col_types = FALSE
+)
+```
+
+```{r env-matrix}
+season <- season %>%
+  column_to_rownames("excavation_unit") %>%
+  replace(is.na(.), 0) %>%
+  na.omit() %>%
+  decostand("normalize")
+```
+
+```{r fauna-matrix}
+label_lookup <- tibble(
+  clean = make.names(
+    colnames(fauna %>% select(-excavation_unit))
+  ),
+  label = colnames(
+    fauna %>% select(-excavation_unit)
+  ) %>%
+    str_replace_all("_", " ")
+)
+
+fauna <- fauna %>%
+  column_to_rownames("excavation_unit") %>%
+  decostand("hellinger")
+
+rownames(fauna)
+```
+
+```{r shared-units}
+shared_units <- intersect(
+  rownames(fauna),
+  rownames(season)
+)
+
+fauna <- fauna[shared_units, , drop = FALSE]
+season <- season[shared_units, , drop = FALSE]
+```
+
+```{r chronology}
+chron_colours <- c(
+  "Mesolithic" = "deepskyblue3",
+  "Meso-Neo transition" = "lightseagreen",
+  "Early-Mid Neolithic transition" = "goldenrod1"
+)
+
+chronology_df <- tibble(
+  excavation_unit = shared_units
+) %>%
+  mutate(
+    chronology = case_when(
+      excavation_unit %in% c(
+        "124", "122", "121", "119", "116",
+        "115", "113.5", "114", "118", "113"
+      ) ~ "Mesolithic",
+
+      excavation_unit %in% c(
+        "108", "112", "25", "111", "24",
+        "23", "110", "22", "109", "107", "20"
+      ) ~ "Meso-Neo transition",
+
+      excavation_unit %in% c(
+        "19", "106", "17", "105", "16"
+      ) ~ "Early-Mid Neolithic transition",
+
+      TRUE ~ NA_character_
+    ) %>%
+      factor(
+        levels = c(
+          "Mesolithic",
+          "Meso-Neo transition",
+          "Early-Mid Neolithic transition"
+        )
+      )
+  )
+```
+
+```{r mesolithic-rda}
+mesolithic_units <- chronology_df %>%
+  filter(chronology == "Mesolithic") %>%
+  pull(excavation_unit)
+
+mesolithic_units <- intersect(
+  mesolithic_units,
+  intersect(
+    rownames(fauna),
+    rownames(season)
+  )
+)
+
+fauna_mesolithic <- fauna[
+  mesolithic_units,
+  ,
+  drop = FALSE
+]
+
+season_mesolithic <- season[
+  mesolithic_units,
+  ,
+  drop = FALSE
+]
+
+season_mesolithic <- season_mesolithic[
+  rownames(fauna_mesolithic),
+  ,
+  drop = FALSE
+]
+
+rda_mesolithic <- rda(
+  fauna_mesolithic ~ .,
+  data = season_mesolithic
+)
+
+summary(rda_mesolithic)
+
+anova(rda_mesolithic)
+
+anova(
+  rda_mesolithic,
+  by = "axis"
+)
+
+anova(
+  rda_mesolithic,
+  by = "terms"
+)
+
+RsquareAdj(rda_mesolithic)
+```
+```{r plot-rda-mesolithic}
+plot(
+  rda_mesolithic,
+  scaling = 2,
+  main = "RDA - Mesolithic"
+)
+```
+
+
+```{r rda-plot-mesolithic, fig.width=12, fig.height=8}
+perc    <- round(100 * summary(rda_mesolithic)$cont$importance[2, 1:2], 2)
+scaling <- 0
+
+site_scores    <- scores(rda_mesolithic, display = "sites",   choices = 1:2, scaling = scaling)
+species_scores <- scores(rda_mesolithic, display = "species", choices = 1:2, scaling = scaling)
+biplot_scores  <- scores(rda_mesolithic, display = "bp",      choices = 1:2, scaling = scaling)
+
+df_sites <- data.frame(
+  site_scores,
+  Type = "Site",
+  Labels = rownames(site_scores)
+)
+
+df_species <- data.frame(
+  species_scores,
+  Type = "Species",
+  Labels = rownames(species_scores)
+) %>%
+  left_join(
+    label_lookup %>% rename(Labels = clean),
+    by = "Labels"
+  ) %>%
+  mutate(Labels = coalesce(label, Labels))
+
+df_biplot <- data.frame(
+  RDA1   = biplot_scores[, 1] * 2,
+  RDA2   = biplot_scores[, 2] * 2,
+  Labels = rownames(biplot_scores)
+) %>%
+  mutate(
+    Labels = recode(
+      Labels,
+      winter = "winter",
+      summer = "summer",
+      spring = "spring",
+      autumn = "autumn"
+    )
+  )
+
+rda_plot_mesolithic <- ggplot() +
+  geom_blank(
+    data = bind_rows(
+      df_sites %>% select(RDA1, RDA2),
+      df_species %>% select(RDA1, RDA2)
+    ),
+    aes(x = RDA1, y = RDA2)
+  ) +
+  geom_point(
+    data = df_sites,
+    aes(x = RDA1, y = RDA2),
+    size = 4
+  ) +
+  geom_text_repel(
+    data = df_sites,
+    aes(x = RDA1, y = RDA2, label = Labels),
+    size = 4,
+    max.overlaps = Inf
+  ) +
+  geom_text_repel(
+    data = df_species,
+    aes(x = RDA1, y = RDA2, label = Labels),
+    colour = "grey40",
+    fontface = "bold",
+    size = 3,
+    max.overlaps = Inf,
+    box.padding = 0,
+    point.padding = 0,
+    segment.colour = "grey70"
+  ) +
+  geom_segment(
+    data = df_biplot,
+    aes(x = 0, y = 0, xend = RDA1, yend = RDA2),
+    arrow = arrow(
+      length = grid::unit(7, "pt"),
+      type = "closed"
+    ),
+    color = "grey25",
+    linewidth = 1
+  ) +
+  geom_text(
+    data = df_biplot,
+    aes(
+      x = RDA1 * 1.15,
+      y = RDA2 * 1.15,
+      label = Labels
+    ),
+    color = "grey25",
+    size = 5,
+    fontface = "bold"
+  ) +
+  labs(
+    x = paste0("RDA1 (", perc[1], "%)"),
+    y = paste0("RDA2 (", perc[2], "%)"),
+    title = "RDA - Mesolithic"
+  ) +
+  theme_classic()
+
+rda_plot_mesolithic
+```
+
+
+
+```{r meso-neo-rda}
+meso_neo_units <- chronology_df %>%
+  filter(chronology == "Meso-Neo transition") %>%
+  pull(excavation_unit)
+
+meso_neo_units <- intersect(
+  meso_neo_units,
+  intersect(
+    rownames(fauna),
+    rownames(season)
+  )
+)
+
+fauna_meso_neo <- fauna[
+  meso_neo_units,
+  ,
+  drop = FALSE
+]
+
+season_meso_neo <- season[
+  meso_neo_units,
+  ,
+  drop = FALSE
+]
+
+season_meso_neo <- season_meso_neo[
+  rownames(fauna_meso_neo),
+  ,
+  drop = FALSE
+]
+
+rda_meso_neo <- rda(
+  fauna_meso_neo ~ .,
+  data = season_meso_neo
+)
+
+summary(rda_meso_neo)
+
+anova(rda_meso_neo)
+
+anova(
+  rda_meso_neo,
+  by = "axis"
+)
+
+anova(
+  rda_meso_neo,
+  by = "terms"
+)
+
+RsquareAdj(rda_meso_neo)
+```
+
+```{r plot-rda-meso-neo}
+plot(
+  rda_meso_neo,
+  scaling = 2,
+  main = "RDA - Meso-Neolithic transition"
+)
+```
+```{r rda-plot-meso-neo, fig.width=12, fig.height=8}
+perc    <- round(100 * summary(rda_meso_neo)$cont$importance[2, 1:2], 2)
+scaling <- 0
+
+site_scores    <- scores(rda_meso_neo, display = "sites",   choices = 1:2, scaling = scaling)
+species_scores <- scores(rda_meso_neo, display = "species", choices = 1:2, scaling = scaling)
+biplot_scores  <- scores(rda_meso_neo, display = "bp",      choices = 1:2, scaling = scaling)
+
+df_sites <- data.frame(
+  site_scores,
+  Type = "Site",
+  Labels = rownames(site_scores)
+)
+
+df_species <- data.frame(
+  species_scores,
+  Type = "Species",
+  Labels = rownames(species_scores)
+) %>%
+  left_join(
+    label_lookup %>% rename(Labels = clean),
+    by = "Labels"
+  ) %>%
+  mutate(Labels = coalesce(label, Labels))
+
+df_biplot <- data.frame(
+  RDA1   = biplot_scores[, 1] * 2,
+  RDA2   = biplot_scores[, 2] * 2,
+  Labels = rownames(biplot_scores)
+) %>%
+  mutate(
+    Labels = recode(
+      Labels,
+      winter = "winter",
+      summer = "summer",
+      spring = "spring",
+      autumn = "autumn"
+    )
+  )
+
+rda_plot_meso_neo <- ggplot() +
+  geom_blank(
+    data = bind_rows(
+      df_sites %>% select(RDA1, RDA2),
+      df_species %>% select(RDA1, RDA2)
+    ),
+    aes(x = RDA1, y = RDA2)
+  ) +
+  geom_point(
+    data = df_sites,
+    aes(x = RDA1, y = RDA2),
+    size = 4
+  ) +
+  geom_text_repel(
+    data = df_sites,
+    aes(x = RDA1, y = RDA2, label = Labels),
+    size = 4,
+    max.overlaps = Inf
+  ) +
+  geom_text_repel(
+    data = df_species,
+    aes(x = RDA1, y = RDA2, label = Labels),
+    colour = "grey40",
+    fontface = "bold",
+    size = 3,
+    max.overlaps = Inf,
+    box.padding = 0,
+    point.padding = 0,
+    segment.colour = "grey70"
+  ) +
+  geom_segment(
+    data = df_biplot,
+    aes(x = 0, y = 0, xend = RDA1, yend = RDA2),
+    arrow = arrow(
+      length = grid::unit(7, "pt"),
+      type = "closed"
+    ),
+    color = "grey25",
+    linewidth = 1
+  ) +
+  geom_text(
+    data = df_biplot,
+    aes(
+      x = RDA1 * 1.15,
+      y = RDA2 * 1.15,
+      label = Labels
+    ),
+    color = "grey25",
+    size = 5,
+    fontface = "bold"
+  ) +
+  labs(
+    x = paste0("RDA1 (", perc[1], "%)"),
+    y = paste0("RDA2 (", perc[2], "%)"),
+    title = "RDA - Meso-Neolithic transition"
+  ) +
+  theme_classic()
+
+rda_plot_meso_neo
+```
+
+
+
+
+
+```{r early-mid-neo-rda}
+early_mid_neo_units <- chronology_df %>%
+  filter(
+    chronology == "Early-Mid Neolithic transition"
+  ) %>%
+  pull(excavation_unit)
+
+early_mid_neo_units <- intersect(
+  early_mid_neo_units,
+  intersect(
+    rownames(fauna),
+    rownames(season)
+  )
+)
+
+fauna_early_mid_neo <- fauna[
+  early_mid_neo_units,
+  ,
+  drop = FALSE
+]
+
+season_early_mid_neo <- season[
+  early_mid_neo_units,
+  ,
+  drop = FALSE
+]
+
+season_early_mid_neo <- season_early_mid_neo[
+  rownames(fauna_early_mid_neo),
+  ,
+  drop = FALSE
+]
+
+rda_early_mid_neo <- rda(
+  fauna_early_mid_neo ~ .,
+  data = season_early_mid_neo
+)
+
+summary(rda_early_mid_neo)
+
+anova(rda_early_mid_neo)
+
+anova(
+  rda_early_mid_neo,
+  by = "axis"
+)
+
+anova(
+  rda_early_mid_neo,
+  by = "terms"
+)
+
+RsquareAdj(rda_early_mid_neo)
+```
+
+```{r plot-rda-early-mid-neo}
+plot(
+  rda_early_mid_neo,
+  scaling = 2,
+  main = "RDA - Early-Mid Neolithic transition"
+)
+```
+
+```{r rda-plot-early-mid-neo, fig.width=12, fig.height=8}
+perc    <- round(100 * summary(rda_early_mid_neo)$cont$importance[2, 1:2], 2)
+scaling <- 0
+
+site_scores    <- scores(rda_early_mid_neo, display = "sites",   choices = 1:2, scaling = scaling)
+species_scores <- scores(rda_early_mid_neo, display = "species", choices = 1:2, scaling = scaling)
+biplot_scores  <- scores(rda_early_mid_neo, display = "bp",      choices = 1:2, scaling = scaling)
+
+df_sites <- data.frame(
+  site_scores,
+  Type = "Site",
+  Labels = rownames(site_scores)
+)
+
+df_species <- data.frame(
+  species_scores,
+  Type = "Species",
+  Labels = rownames(species_scores)
+) %>%
+  left_join(
+    label_lookup %>% rename(Labels = clean),
+    by = "Labels"
+  ) %>%
+  mutate(Labels = coalesce(label, Labels))
+
+df_biplot <- data.frame(
+  RDA1   = biplot_scores[, 1] * 2,
+  RDA2   = biplot_scores[, 2] * 2,
+  Labels = rownames(biplot_scores)
+) %>%
+  mutate(
+    Labels = recode(
+      Labels,
+      winter = "winter",
+      summer = "summer",
+      spring = "spring",
+      autumn = "autumn"
+    )
+  )
+
+rda_plot_early_mid_neo <- ggplot() +
+  geom_blank(
+    data = bind_rows(
+      df_sites %>% select(RDA1, RDA2),
+      df_species %>% select(RDA1, RDA2)
+    ),
+    aes(x = RDA1, y = RDA2)
+  ) +
+  geom_point(
+    data = df_sites,
+    aes(x = RDA1, y = RDA2),
+    size = 4
+  ) +
+  geom_text_repel(
+    data = df_sites,
+    aes(x = RDA1, y = RDA2, label = Labels),
+    size = 4,
+    max.overlaps = Inf
+  ) +
+  geom_text_repel(
+    data = df_species,
+    aes(x = RDA1, y = RDA2, label = Labels),
+    colour = "grey40",
+    fontface = "bold",
+    size = 3,
+    max.overlaps = Inf,
+    box.padding = 0,
+    point.padding = 0,
+    segment.colour = "grey70"
+  ) +
+  geom_segment(
+    data = df_biplot,
+    aes(x = 0, y = 0, xend = RDA1, yend = RDA2),
+    arrow = arrow(
+      length = grid::unit(7, "pt"),
+      type = "closed"
+    ),
+    color = "grey25",
+    linewidth = 1
+  ) +
+  geom_text(
+    data = df_biplot,
+    aes(
+      x = RDA1 * 1.15,
+      y = RDA2 * 1.15,
+      label = Labels
+    ),
+    color = "grey25",
+    size = 5,
+    fontface = "bold"
+  ) +
+  labs(
+    x = paste0("RDA1 (", perc[1], "%)"),
+    y = paste0("RDA2 (", perc[2], "%)"),
+    title = "RDA - Early-Mid Neolithic transition"
+  ) +
+  theme_classic()
+
+rda_plot_early_mid_neo
+```
+
+```{r save-rda-plots}
+plot_dir <- "C:/Users/arnizmateos/Documents/GitHub/SEAFRONT-Zukovica/results/plots"
+
+dir.create(
+  plot_dir,
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+
+ggsave(
+  filename = file.path(
+    plot_dir,
+    "Mesolithic.png"
+  ),
+  plot = rda_plot_mesolithic,
+  width = 12,
+  height = 8,
+  dpi = 300
+)
+
+ggsave(
+  filename = file.path(
+    plot_dir,
+    "Meso-Neolithic_transition.png"
+  ),
+  plot = rda_plot_meso_neo,
+  width = 12,
+  height = 8,
+  dpi = 300
+)
+
+ggsave(
+  filename = file.path(
+    plot_dir,
+    "Early-Mid_Neolithic_transition.png"
+  ),
+  plot = rda_plot_early_mid_neo,
+  width = 12,
+  height = 8,
+  dpi = 300
+)
+```
