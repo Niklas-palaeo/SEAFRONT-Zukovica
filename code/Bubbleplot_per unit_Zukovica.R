@@ -1,8 +1,10 @@
 
 library(readxl)
 library(tidyverse)
+library(here)
+library(cowplot)
 
-data <- read_excel("Season Zukovica per unit.xlsx")
+data <- read_csv(here("data","raw","zukovica_seasons.csv"))
 
 data_long <- data %>%
   pivot_longer(
@@ -69,3 +71,15 @@ ggsave(
   height = 7,
   dpi = 300
 )
+
+
+
+
+data_long %>%
+  ggplot()+ aes(x = factor(excavation_unit, levels = rev(unique(excavation_unit))), y = Value, fill = Season) +
+  geom_bar( stat = "identity")+
+  scale_fill_manual(values = season_colors)+
+  theme_cowplot()+
+  theme(legend.position = "")+
+  facet_wrap(~Season)+
+  labs(x="")
